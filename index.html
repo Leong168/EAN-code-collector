@@ -118,49 +118,6 @@
             let userId = null;
             let dbRef = null;
             
-            // Wait for authentication state to be ready
-            const authReadyPromise = new Promise((resolve) => {
-                const unsubscribe = onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        document.getElementById('user-id').textContent = userId;
-                        console.log("User authenticated:", userId);
-                        dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
-                        // Start listening for real-time updates after auth is complete
-                        setupFirestoreListener();
-                        unsubscribe(); // Unsubscribe after the first successful authentication
-                        resolve();
-                    } else {
-                        // Sign in anonymously if no auth token is provided
-                        try {
-                            const userCredential = await signInAnonymously(auth);
-                            userId = userCredential.user.uid;
-                            document.getElementById('user-id').textContent = userId;
-                            console.log("Signed in anonymously. User ID:", userId);
-                            dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
-                            setupFirestoreListener();
-                            unsubscribe();
-                            resolve();
-                        } catch (error) {
-                            console.error("An error occurred during anonymous sign-in:", error);
-                            showModal("Authentication Error", "Could not authenticate. Data will not be saved.");
-                            unsubscribe();
-                            resolve();
-                        }
-                    }
-                });
-            });
-
-            // If a custom auth token is provided, sign in with it first
-            if (initialAuthToken) {
-                try {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } catch (error) {
-                    console.error("An error occurred during custom token sign-in:", error);
-                    showModal("Authentication Error", "Custom token sign-in failed. Please try again.");
-                }
-            }
-
             // --- UI Element References ---
             const videoElement = document.getElementById('video-feed');
             const scanButton = document.getElementById('scan-button');
@@ -180,8 +137,8 @@
             let scanMode = 'qr'; // 'qr' or 'code128'
             let scannedQrData = null;
             let scannedItems = [];
-            
-            // --- Utility Functions ---
+
+            // --- Utility Functions (Defined before they are called) ---
             const showModal = (title, message) => {
                 modalTitle.textContent = title;
                 modalBody.textContent = message;
@@ -273,7 +230,7 @@
                 if (isScanning) return;
                 isScanning = true;
                 scanButton.textContent = 'Stop Scanning';
-                scanButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                scanButton.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'opacity-50', 'cursor-not-allowed');
                 scanButton.classList.add('bg-red-600', 'hover:bg-red-700');
                 updateStatusMessage("Requesting camera access...", true);
                 scanMode = 'qr';
@@ -301,7 +258,7 @@
                     updateStatusMessage("Camera stream acquired. Waiting for video to play...", true);
 
                     const startDecoding = () => {
-                        updateStatusMessage("Scanner is active. Ready to scan!", true);
+                        updateStatusMessage("Scanner is active. Ready to scan!", false);
                         codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
                             if (result) {
                                 handleScanResult(result.getText(), result.getBarcodeFormat().getName());
@@ -310,15 +267,14 @@
                     };
 
                     // New robust way to ensure video is ready
-                    const videoReadyCheck = () => {
-                        if (videoElement.readyState === 4) { // readyState 4 means 'have enough data'
-                            clearInterval(videoCheckInterval);
-                            startDecoding();
-                        }
-                    };
+                    videoElement.addEventListener('canplay', () => {
+                        startDecoding();
+                    }, { once: true });
                     
-                    videoCheckInterval = setInterval(videoReadyCheck, 100);
-
+                    videoElement.play().catch(err => {
+                        console.error("Error playing video:", err);
+                        showModal("Video Playback Error", "Could not start video playback. Please reload the page and try again.");
+                    });
                 } catch (err) {
                     console.error("Error accessing camera:", err);
                     updateStatusMessage("Error: Camera access denied. Please enable camera permissions and try again.");
@@ -335,10 +291,6 @@
                 scanButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
                 updateStatusMessage("Scanner stopped.");
                 
-                if (videoCheckInterval) {
-                    clearInterval(videoCheckInterval);
-                }
-
                 if (codeReader) {
                     codeReader.reset();
                     codeReader = null;
@@ -396,6 +348,49 @@
                 XLSX.writeFile(wb, "scanned_data.xlsx");
                 showModal("Export Complete", "Your data has been successfully exported to 'scanned_data.xlsx'.");
             };
+            
+            // Wait for authentication state to be ready
+            const authReadyPromise = new Promise((resolve) => {
+                const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('user-id').textContent = userId;
+                        console.log("User authenticated:", userId);
+                        dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
+                        // Start listening for real-time updates after auth is complete
+                        setupFirestoreListener();
+                        unsubscribe(); // Unsubscribe after the first successful authentication
+                        resolve();
+                    } else {
+                        // Sign in anonymously if no auth token is provided
+                        try {
+                            const userCredential = await signInAnonymously(auth);
+                            userId = userCredential.user.uid;
+                            document.getElementById('user-id').textContent = userId;
+                            console.log("Signed in anonymously. User ID:", userId);
+                            dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
+                            setupFirestoreListener();
+                            unsubscribe();
+                            resolve();
+                        } catch (error) {
+                            console.error("An error occurred during anonymous sign-in:", error);
+                            showModal("Authentication Error", "Could not authenticate. Data will not be saved.");
+                            unsubscribe();
+                            resolve();
+                        }
+                    }
+                });
+            });
+
+            // If a custom auth token is provided, sign in with it first
+            if (initialAuthToken) {
+                try {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } catch (error) {
+                    console.error("An error occurred during custom token sign-in:", error);
+                    showModal("Authentication Error", "Custom token sign-in failed. Please try again.");
+                }
+            }
 
             // --- Event Listeners ---
             scanButton.addEventListener('click', () => {
@@ -410,8 +405,15 @@
             modalCloseButton.addEventListener('click', hideModal);
 
             // Initial setup
+            updateStatusMessage("Loading app data...", true);
+            scanButton.disabled = true;
+            scanButton.classList.add('opacity-50', 'cursor-not-allowed');
+
             await authReadyPromise;
-            updateStatusMessage("Press 'Start Scanning' to begin.");
+            updateStatusMessage("App ready. Press 'Start Scanning' to begin.");
+            scanButton.disabled = false;
+            scanButton.classList.remove('opacity-50', 'cursor-not-allowed');
+            loadingSpinner.classList.add('hidden');
         })();
     </script>
 </body>
