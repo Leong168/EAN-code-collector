@@ -20,7 +20,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global Firebase variables for use in the script
         window.firebase = {
@@ -30,7 +30,11 @@
             signInWithCustomToken,
             onAuthStateChanged,
             getFirestore,
-            doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs
+            doc,
+            addDoc,
+            deleteDoc,
+            onSnapshot,
+            collection
         };
     </script>
 </head>
@@ -58,7 +62,7 @@
                         </svg>
                     </div>
                 </div>
-                <button id="scan-button" class="mt-4 px-6 py-3 bg-blue-600 text-white font-bold rounded-full shadow-lg hover:bg-blue-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50">
+                <button id="scan-button" class="mt-4 px-6 py-3 bg-blue-600 text-white font-bold rounded-full shadow-lg hover:bg-blue-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50" disabled>
                     Start Scanning
                 </button>
             </div>
@@ -71,7 +75,7 @@
                         <li class="text-gray-500 dark:text-gray-400">No items scanned yet.</li>
                     </ul>
                 </div>
-                <button id="export-button" class="mt-6 px-6 py-3 w-full bg-green-600 text-white font-bold rounded-full shadow-lg hover:bg-green-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50">
+                <button id="export-button" class="mt-6 px-6 py-3 w-full bg-green-600 text-white font-bold rounded-full shadow-lg hover:bg-green-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50" disabled>
                     Export to Excel
                 </button>
             </div>
@@ -89,8 +93,7 @@
     </div>
 
     <script type="module">
-        // It's crucial to wrap the code in a self-executing async function to use 'await' and handle Firebase initialization correctly.
-        (async () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             // Check for required global variables for Firestore and handle them safely
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             let firebaseConfig = null;
@@ -104,21 +107,20 @@
             const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
             if (!firebaseConfig) {
-                console.error("Firebase config is not available. Please provide a valid configuration.");
-                // Show a modal to the user about the issue
-                showModal("Configuration Error", "Firebase configuration is missing. The app will not be able to save data.");
+                console.error("Firebase config is not available. The app will not be able to save data.");
                 return;
             }
 
             // --- Firebase Initialization and Authentication ---
-            const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, onSnapshot, deleteDoc, doc, setDoc } = window.firebase;
+            const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, onSnapshot, deleteDoc, doc, addDoc } = window.firebase;
             const app = initializeApp(firebaseConfig);
             const auth = getAuth(app);
             const db = getFirestore(app);
+
             let userId = null;
             let dbRef = null;
-            let isAuthReady = false; // Flag to indicate authentication is complete
-            
+            let isAuthReady = false;
+
             // --- UI Element References ---
             const videoElement = document.getElementById('video-feed');
             const scanButton = document.getElementById('scan-button');
@@ -135,11 +137,11 @@
             let codeReader = null;
             let videoStream = null;
             let isScanning = false;
-            let scanMode = 'qr'; // 'qr' or 'code128'
+            let scanMode = 'qr';
             let scannedQrData = null;
             let scannedItems = [];
 
-            // --- Utility Functions (Defined before they are called) ---
+            // --- Utility Functions ---
             const showModal = (title, message) => {
                 modalTitle.textContent = title;
                 modalBody.textContent = message;
@@ -176,21 +178,6 @@
                     `;
                     scannedList.appendChild(li);
                 });
-                // Add event listeners for delete buttons
-                document.querySelectorAll('.delete-btn').forEach(button => {
-                    button.addEventListener('click', async (event) => {
-                        const docId = event.target.dataset.id;
-                        if (docId && dbRef) {
-                            try {
-                                await deleteDoc(doc(dbRef, docId));
-                                console.log("Document successfully deleted!");
-                            } catch (e) {
-                                console.error("Error removing document: ", e);
-                                showModal("Deletion Error", "Could not delete the item. Check the console for details.");
-                            }
-                        }
-                    });
-                });
             };
 
             const saveScannedItem = async (qrData, code128Data) => {
@@ -214,36 +201,63 @@
             const setupFirestoreListener = () => {
                 if (!dbRef) return;
                 console.log("Firestore collection path:", dbRef.path);
+
                 onSnapshot(dbRef, (snapshot) => {
                     const items = [];
                     snapshot.forEach((doc) => {
                         items.push({ id: doc.id, ...doc.data() });
                     });
-                    // Sort items by timestamp for a consistent order
                     scannedItems = items.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
                     updateScannedList();
                 }, (error) => {
-                    console.error("Error getting real-time updates:", error.message);
-                    showModal("Sync Error", `Could not sync with the database. Error: ${error.message}. Please reload the page.`);
+                    console.error("Error getting real-time updates:", error);
+                    let errorMessage = "Could not sync with the database.";
+                    if (error.code === 'permission-denied') {
+                        errorMessage += " Please check your Firebase security rules.";
+                    }
+                    showModal("Sync Error", errorMessage);
+                });
+            };
+
+            const setupEventListeners = () => {
+                scanButton.addEventListener('click', () => {
+                    if (isScanning) {
+                        stopScanning();
+                    } else {
+                        startScanning();
+                    }
+                });
+
+                exportButton.addEventListener('click', exportToExcel);
+                modalCloseButton.addEventListener('click', hideModal);
+
+                document.addEventListener('click', async (event) => {
+                    if (event.target.classList.contains('delete-btn')) {
+                        const docId = event.target.dataset.id;
+                        if (docId && dbRef) {
+                            try {
+                                await deleteDoc(doc(dbRef, docId));
+                                console.log("Document successfully deleted!");
+                            } catch (e) {
+                                console.error("Error removing document: ", e);
+                                showModal("Deletion Error", "Could not delete the item. Check the console for details.");
+                            }
+                        }
+                    }
                 });
             };
             
             // --- Scanner Control Functions ---
             const startScanning = async () => {
-                if (isScanning || !isAuthReady) {
-                    // Added log to help with debugging
-                    console.log("Cannot start scanning. isScanning:", isScanning, "isAuthReady:", isAuthReady);
-                    return;
-                }
+                if (isScanning || !isAuthReady) return;
                 isScanning = true;
                 scanButton.textContent = 'Stop Scanning';
-                scanButton.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'opacity-50', 'cursor-not-allowed');
+                scanButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
                 scanButton.classList.add('bg-red-600', 'hover:bg-red-700');
                 updateStatusMessage("Requesting camera access...", true);
                 scanMode = 'qr';
                 scannedQrData = null;
 
-                // Reset existing reader if it exists
                 if (codeReader) {
                     codeReader.reset();
                 }
@@ -251,42 +265,22 @@
                 codeReader = new window.ZXing.BrowserMultiFormatReader();
 
                 try {
-                    // Check for camera support
-                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                        showModal("Camera Not Supported", "Your browser does not support camera access. Please use a different device or browser.");
-                        updateStatusMessage("Error: Camera not supported.");
-                        stopScanning();
-                        return;
-                    }
-
-                    // Get the video stream from the camera
                     videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                     videoElement.srcObject = videoStream;
-                    updateStatusMessage("Camera stream acquired. Waiting for video to play...", true);
-
-                    const startDecoding = () => {
-                        updateStatusMessage("Scanner is active. Ready to scan!", false);
-                        codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
-                            if (result) {
-                                handleScanResult(result.getText(), result.getBarcodeFormat().getName());
-                            }
-                        });
-                    };
-
-                    // New robust way to ensure video is ready
-                    videoElement.addEventListener('canplay', () => {
-                        startDecoding();
-                    }, { once: true });
+                    await videoElement.play();
                     
-                    videoElement.play().catch(err => {
-                        console.error("Error playing video:", err);
-                        showModal("Video Playback Error", "Could not start video playback. Please reload the page and try again.");
+                    updateStatusMessage("Scanner is active. Ready to scan!", false);
+
+                    codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
+                        if (result) {
+                            handleScanResult(result.getText(), result.getBarcodeFormat().getName());
+                        }
                     });
                 } catch (err) {
                     console.error("Error accessing camera:", err);
                     updateStatusMessage("Error: Camera access denied. Please enable camera permissions and try again.");
-                    stopScanning();
                     showModal("Camera Error", "Could not access the camera. Please check your browser permissions or try reloading the page.");
+                    stopScanning();
                 }
             };
 
@@ -324,23 +318,17 @@
                         scannedQrData = null;
                         scanMode = 'qr';
                     } else {
-                        // This case should ideally not happen if the flow is followed
                         updateStatusMessage("QR code not scanned yet. Please scan the QR code first.", false);
                     }
-                } else {
-                    // Ignore other formats or incorrect scan modes
-                    updateStatusMessage(`Scanning... Found a ${format} but waiting for a ${scanMode === 'qr' ? 'QR_CODE' : 'CODE_128'}.`, true);
                 }
             };
 
-            // --- Export to Excel Functionality ---
             const exportToExcel = () => {
                 if (scannedItems.length === 0) {
                     showModal("Export Failed", "There is no data to export. Scan some items first.");
                     return;
                 }
 
-                // Prepare data for export, mapping Firestore fields to column headers
                 const dataToExport = scannedItems.map(item => ({
                     'QR Code Data': item.qrCode,
                     'Code 128 Number': item.code128,
@@ -351,80 +339,58 @@
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Scanned Data");
 
-                // Generate and download the Excel file
                 XLSX.writeFile(wb, "scanned_data.xlsx");
                 showModal("Export Complete", "Your data has been successfully exported to 'scanned_data.xlsx'.");
             };
-            
-            // Wait for authentication state to be ready
-            const authReadyPromise = new Promise((resolve) => {
-                const unsubscribe = onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        document.getElementById('user-id').textContent = userId;
-                        console.log("User authenticated:", userId);
-                        dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
-                        isAuthReady = true;
-                        // Start listening for real-time updates after auth is complete
-                        setupFirestoreListener();
-                        unsubscribe(); // Unsubscribe after the first successful authentication
-                        resolve();
-                    } else {
-                        // Sign in anonymously if no auth token is provided
-                        try {
-                            const userCredential = await signInAnonymously(auth);
-                            userId = userCredential.user.uid;
-                            document.getElementById('user-id').textContent = userId;
-                            console.log("Signed in anonymously. User ID:", userId);
-                            dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
-                            isAuthReady = true;
-                            setupFirestoreListener();
-                            unsubscribe();
-                            resolve();
-                        } catch (error) {
-                            console.error("An error occurred during anonymous sign-in:", error);
-                            showModal("Authentication Error", "Could not authenticate. Data will not be saved.");
-                            unsubscribe();
-                            isAuthReady = false;
-                            resolve(); // Resolve the promise even on failure to unblock the UI
-                        }
-                    }
-                });
-            });
 
-            // If a custom auth token is provided, sign in with it first
+            // Main initialization flow
+            updateStatusMessage("Loading app data...", true);
+            setupEventListeners();
+            
             if (initialAuthToken) {
                 try {
                     await signInWithCustomToken(auth, initialAuthToken);
                 } catch (error) {
                     console.error("An error occurred during custom token sign-in:", error);
-                    showModal("Authentication Error", "Custom token sign-in failed. Please try again.");
                 }
             }
 
-            // --- Event Listeners ---
-            scanButton.addEventListener('click', () => {
-                if (isScanning) {
-                    stopScanning();
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    document.getElementById('user-id').textContent = userId;
+                    console.log("User authenticated:", userId);
+                    dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
+                    isAuthReady = true;
+                    setupFirestoreListener();
+                    
+                    updateStatusMessage("App ready. Press 'Start Scanning' to begin.");
+                    scanButton.disabled = false;
+                    scanButton.classList.remove('opacity-50', 'cursor-not-allowed');
+
                 } else {
-                    startScanning();
+                    try {
+                        const userCredential = await signInAnonymously(auth);
+                        userId = userCredential.user.uid;
+                        document.getElementById('user-id').textContent = userId;
+                        console.log("Signed in anonymously. User ID:", userId);
+                        dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
+                        isAuthReady = true;
+                        setupFirestoreListener();
+
+                        updateStatusMessage("App ready. Press 'Start Scanning' to begin.");
+                        scanButton.disabled = false;
+                        scanButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                    } catch (error) {
+                        console.error("An error occurred during anonymous sign-in:", error);
+                        showModal("Authentication Error", "Could not authenticate. Data will not be saved.");
+                        isAuthReady = false;
+                        updateStatusMessage("Authentication failed. Data will not be saved.");
+                    }
                 }
+                loadingSpinner.classList.add('hidden');
             });
-
-            exportButton.addEventListener('click', exportToExcel);
-            modalCloseButton.addEventListener('click', hideModal);
-
-            // Initial setup
-            updateStatusMessage("Loading app data...", true);
-            scanButton.disabled = true;
-            scanButton.classList.add('opacity-50', 'cursor-not-allowed');
-
-            await authReadyPromise;
-            updateStatusMessage("App ready. Press 'Start Scanning' to begin.");
-            scanButton.disabled = false;
-            scanButton.classList.remove('opacity-50', 'cursor-not-allowed');
-            loadingSpinner.classList.add('hidden');
-        })();
+        });
     </script>
 </body>
 </html>
