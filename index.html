@@ -117,6 +117,7 @@
             const db = getFirestore(app);
             let userId = null;
             let dbRef = null;
+            let isAuthReady = false; // Flag to indicate authentication is complete
             
             // --- UI Element References ---
             const videoElement = document.getElementById('video-feed');
@@ -185,6 +186,7 @@
                                 console.log("Document successfully deleted!");
                             } catch (e) {
                                 console.error("Error removing document: ", e);
+                                showModal("Deletion Error", "Could not delete the item. Check the console for details.");
                             }
                         }
                     });
@@ -192,7 +194,7 @@
             };
 
             const saveScannedItem = async (qrData, code128Data) => {
-                if (!dbRef) {
+                if (!dbRef || !isAuthReady) {
                     showModal("Save Error", "Firestore is not ready. Please try again.");
                     return;
                 }
@@ -221,14 +223,14 @@
                     scannedItems = items.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
                     updateScannedList();
                 }, (error) => {
-                    console.error("Error getting real-time updates:", error);
-                    showModal("Sync Error", "Could not sync with the database. Please reload the page.");
+                    console.error("Error getting real-time updates:", error.message);
+                    showModal("Sync Error", `Could not sync with the database. Error: ${error.message}. Please reload the page.`);
                 });
             };
             
             // --- Scanner Control Functions ---
             const startScanning = async () => {
-                if (isScanning) return;
+                if (isScanning || !isAuthReady) return;
                 isScanning = true;
                 scanButton.textContent = 'Stop Scanning';
                 scanButton.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'opacity-50', 'cursor-not-allowed');
@@ -358,6 +360,7 @@
                         document.getElementById('user-id').textContent = userId;
                         console.log("User authenticated:", userId);
                         dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
+                        isAuthReady = true;
                         // Start listening for real-time updates after auth is complete
                         setupFirestoreListener();
                         unsubscribe(); // Unsubscribe after the first successful authentication
@@ -370,6 +373,7 @@
                             document.getElementById('user-id').textContent = userId;
                             console.log("Signed in anonymously. User ID:", userId);
                             dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
+                            isAuthReady = true;
                             setupFirestoreListener();
                             unsubscribe();
                             resolve();
@@ -377,7 +381,8 @@
                             console.error("An error occurred during anonymous sign-in:", error);
                             showModal("Authentication Error", "Could not authenticate. Data will not be saved.");
                             unsubscribe();
-                            resolve();
+                            isAuthReady = false;
+                            resolve(); // Resolve the promise even on failure to unblock the UI
                         }
                     }
                 });
