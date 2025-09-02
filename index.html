@@ -296,20 +296,22 @@
                     // Get the video stream from the camera
                     videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                     videoElement.srcObject = videoStream;
-
-                    updateStatusMessage("Camera stream received...", true);
+                    updateStatusMessage("Camera stream loaded. Waiting to play...", true);
                     
-                    // Promise to wait for video to be ready and start playing
+                    // Promise to wait for the video element to be ready to play
                     const videoReadyPromise = new Promise((resolve, reject) => {
                         const timeout = setTimeout(() => {
                             reject('Video ready timeout.');
                         }, 5000);
 
-                        const onVideoReady = () => {
-                            clearTimeout(timeout);
-                            resolve();
-                        };
-                        videoElement.addEventListener('canplay', onVideoReady, { once: true });
+                        videoElement.addEventListener('loadedmetadata', () => {
+                            updateStatusMessage("Video metadata loaded...", true);
+                            videoElement.addEventListener('canplay', () => {
+                                clearTimeout(timeout);
+                                resolve();
+                            }, { once: true });
+                        }, { once: true });
+
                         videoElement.addEventListener('error', () => {
                             clearTimeout(timeout);
                             reject('Video playback error.');
@@ -324,7 +326,7 @@
                     
                     await videoReadyPromise;
                     
-                    updateStatusMessage("Starting scanner...", true);
+                    updateStatusMessage("Scanner is active. Ready to scan!", true);
 
                     // Start decoding from the video stream
                     codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
