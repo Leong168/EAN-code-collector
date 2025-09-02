@@ -117,7 +117,7 @@
             const db = getFirestore(app);
             let userId = null;
             let dbRef = null;
-
+            
             // Wait for authentication state to be ready
             const authReadyPromise = new Promise((resolve) => {
                 const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -180,8 +180,7 @@
             let scanMode = 'qr'; // 'qr' or 'code128'
             let scannedQrData = null;
             let scannedItems = [];
-            let videoCheckInterval = null;
-
+            
             // --- Utility Functions ---
             const showModal = (title, message) => {
                 modalTitle.textContent = title;
