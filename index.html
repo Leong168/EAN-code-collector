@@ -230,7 +230,11 @@
             
             // --- Scanner Control Functions ---
             const startScanning = async () => {
-                if (isScanning || !isAuthReady) return;
+                if (isScanning || !isAuthReady) {
+                    // Added log to help with debugging
+                    console.log("Cannot start scanning. isScanning:", isScanning, "isAuthReady:", isAuthReady);
+                    return;
+                }
                 isScanning = true;
                 scanButton.textContent = 'Stop Scanning';
                 scanButton.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'opacity-50', 'cursor-not-allowed');
