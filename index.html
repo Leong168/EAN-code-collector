@@ -120,7 +120,7 @@
 
             // Wait for authentication state to be ready
             const authReadyPromise = new Promise((resolve) => {
-                onAuthStateChanged(auth, async (user) => {
+                const unsubscribe = onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
                         document.getElementById('user-id').textContent = userId;
@@ -128,6 +128,7 @@
                         dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
                         // Start listening for real-time updates after auth is complete
                         setupFirestoreListener();
+                        unsubscribe(); // Unsubscribe after the first successful authentication
                         resolve();
                     } else {
                         // Sign in anonymously if no auth token is provided
@@ -138,10 +139,12 @@
                             console.log("Signed in anonymously. User ID:", userId);
                             dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
                             setupFirestoreListener();
+                            unsubscribe();
                             resolve();
                         } catch (error) {
                             console.error("An error occurred during anonymous sign-in:", error);
                             showModal("Authentication Error", "Could not authenticate. Data will not be saved.");
+                            unsubscribe();
                             resolve();
                         }
                     }
@@ -177,6 +180,7 @@
             let scanMode = 'qr'; // 'qr' or 'code128'
             let scannedQrData = null;
             let scannedItems = [];
+            let videoCheckInterval = null;
 
             // --- Utility Functions ---
             const showModal = (title, message) => {
@@ -264,7 +268,7 @@
                     showModal("Sync Error", "Could not sync with the database. Please reload the page.");
                 });
             };
-
+            
             // --- Scanner Control Functions ---
             const startScanning = async () => {
                 if (isScanning) return;
@@ -275,13 +279,12 @@
                 updateStatusMessage("Requesting camera access...", true);
                 scanMode = 'qr';
                 scannedQrData = null;
-                
+
                 // Reset existing reader if it exists
                 if (codeReader) {
                     codeReader.reset();
                 }
-                
-                // Create a new code reader instance
+
                 codeReader = new window.ZXing.BrowserMultiFormatReader();
 
                 try {
@@ -296,44 +299,26 @@
                     // Get the video stream from the camera
                     videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                     videoElement.srcObject = videoStream;
-                    updateStatusMessage("Camera stream loaded. Waiting to play...", true);
-                    
-                    // Promise to wait for the video element to be ready to play
-                    const videoReadyPromise = new Promise((resolve, reject) => {
-                        const timeout = setTimeout(() => {
-                            reject('Video ready timeout.');
-                        }, 5000);
+                    updateStatusMessage("Camera stream acquired. Waiting for video to play...", true);
 
-                        videoElement.addEventListener('loadedmetadata', () => {
-                            updateStatusMessage("Video metadata loaded...", true);
-                            videoElement.addEventListener('canplay', () => {
-                                clearTimeout(timeout);
-                                resolve();
-                            }, { once: true });
-                        }, { once: true });
+                    const startDecoding = () => {
+                        updateStatusMessage("Scanner is active. Ready to scan!", true);
+                        codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
+                            if (result) {
+                                handleScanResult(result.getText(), result.getBarcodeFormat().getName());
+                            }
+                        });
+                    };
 
-                        videoElement.addEventListener('error', () => {
-                            clearTimeout(timeout);
-                            reject('Video playback error.');
-                        }, { once: true });
-                    });
-
-                    // Explicitly try to play the video to trigger permissions and stream
-                    await videoElement.play().catch(error => {
-                        console.error("Video play() failed:", error);
-                        throw new Error("Video autoplay failed. User interaction may be required.");
-                    });
-                    
-                    await videoReadyPromise;
-                    
-                    updateStatusMessage("Scanner is active. Ready to scan!", true);
-
-                    // Start decoding from the video stream
-                    codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
-                        if (result) {
-                            handleScanResult(result.getText(), result.getBarcodeFormat().getName());
+                    // New robust way to ensure video is ready
+                    const videoReadyCheck = () => {
+                        if (videoElement.readyState === 4) { // readyState 4 means 'have enough data'
+                            clearInterval(videoCheckInterval);
+                            startDecoding();
                         }
-                    });
+                    };
+                    
+                    videoCheckInterval = setInterval(videoReadyCheck, 100);
 
                 } catch (err) {
                     console.error("Error accessing camera:", err);
@@ -351,6 +336,10 @@
                 scanButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
                 updateStatusMessage("Scanner stopped.");
                 
+                if (videoCheckInterval) {
+                    clearInterval(videoCheckInterval);
+                }
+
                 if (codeReader) {
                     codeReader.reset();
                     codeReader = null;
@@ -426,6 +415,5 @@
             updateStatusMessage("Press 'Start Scanning' to begin.");
         })();
     </script>
-
 </body>
 </html>
