@@ -211,6 +211,7 @@
 
             const setupFirestoreListener = () => {
                 if (!dbRef) return;
+                console.log("Firestore collection path:", dbRef.path);
                 onSnapshot(dbRef, (snapshot) => {
                     const items = [];
                     snapshot.forEach((doc) => {
