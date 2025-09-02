@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR & Barcode Scanner</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+    <!-- ZXing Library for barcode scanning -->
+    <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
+    <!-- SheetJS (XLSX) for Excel export -->
+    <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables for use in the script
+        window.firebase = {
+            initializeApp,
+            getAuth,
+            signInAnonymously,
+            signInWithCustomToken,
+            onAuthStateChanged,
+            getFirestore,
+            doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs
+        };
+    </script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Main Container -->
+    <div id="app-container" class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-10 w-full max-w-4xl flex flex-col items-center space-y-8">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-blue-600 dark:text-blue-400">Inventory Scanner</h1>
+        <p class="text-lg text-center text-gray-600 dark:text-gray-300 max-w-lg">
+            Scan QR codes for item information and Code 128 barcodes for numbering.
+        </p>
+
+        <!-- UI for Scanning -->
+        <div class="w-full flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8">
+            <div class="w-full md:w-1/2 flex flex-col items-center">
+                <video id="video-feed" class="w-full max-w-md h-auto rounded-xl shadow-lg border-2 border-gray-300 dark:border-gray-600 aspect-video"></video>
+                <div class="mt-4 w-full text-center">
+                    <p id="scan-message" class="text-lg font-semibold text-gray-700 dark:text-gray-200">
+                        Initializing scanner...
+                    </p>
+                    <div id="loading-spinner" class="mt-2 text-center text-blue-500 hidden">
+                        <svg class="animate-spin h-8 w-8 text-blue-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <button id="scan-button" class="mt-4 px-6 py-3 bg-blue-600 text-white font-bold rounded-full shadow-lg hover:bg-blue-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50">
+                    Start Scanning
+                </button>
+            </div>
+
+            <!-- Display for Scanned Data -->
+            <div class="w-full md:w-1/2 mt-8 md:mt-0">
+                <div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-6 shadow-inner w-full h-80 overflow-y-auto">
+                    <h2 class="text-xl font-bold mb-4 border-b-2 border-gray-300 dark:border-gray-600 pb-2">Scanned Items</h2>
+                    <ul id="scanned-list" class="space-y-4">
+                        <li class="text-gray-500 dark:text-gray-400">No items scanned yet.</li>
+                    </ul>
+                </div>
+                <button id="export-button" class="mt-6 px-6 py-3 w-full bg-green-600 text-white font-bold rounded-full shadow-lg hover:bg-green-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50">
+                    Export to Excel
+                </button>
+            </div>
+        </div>
+        <p class="text-sm mt-4 text-gray-500 dark:text-gray-400">User ID: <span id="user-id">Loading...</span></p>
+    </div>
+
+    <!-- Message Modal -->
+    <div id="message-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-8 w-full max-w-sm text-center transform scale-95 md:scale-100 transition-all duration-300 ease-out">
+            <h3 id="modal-title" class="text-xl font-bold mb-4"></h3>
+            <p id="modal-body" class="text-gray-700 dark:text-gray-200"></p>
+            <button id="modal-close-button" class="mt-6 px-6 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition duration-300">Close</button>
+        </div>
+    </div>
+
+    <script type="module">
+        // It's crucial to wrap the code in a self-executing async function to use 'await' and handle Firebase initialization correctly.
+        (async () => {
+            // Check for required global variables for Firestore and handle them safely
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            let firebaseConfig = null;
+            if (typeof __firebase_config !== 'undefined') {
+                try {
+                    firebaseConfig = JSON.parse(__firebase_config);
+                } catch (e) {
+                    console.error("Failed to parse __firebase_config:", e);
+                }
+            }
+            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+            if (!firebaseConfig) {
+                console.error("Firebase config is not available. Please provide a valid configuration.");
+                // Show a modal to the user about the issue
+                showModal("Configuration Error", "Firebase configuration is missing. The app will not be able to save data.");
+                return;
+            }
+
+            // --- Firebase Initialization and Authentication ---
+            const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, onSnapshot, deleteDoc, doc, setDoc } = window.firebase;
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            const db = getFirestore(app);
+            let userId = null;
+            let dbRef = null;
+
+            // Wait for authentication state to be ready
+            const authReadyPromise = new Promise((resolve) => {
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('user-id').textContent = userId;
+                        console.log("User authenticated:", userId);
+                        dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
+                        // Start listening for real-time updates after auth is complete
+                        setupFirestoreListener();
+                        resolve();
+                    } else {
+                        // Sign in anonymously if no auth token is provided
+                        try {
+                            const userCredential = await signInAnonymously(auth);
+                            userId = userCredential.user.uid;
+                            document.getElementById('user-id').textContent = userId;
+                            console.log("Signed in anonymously. User ID:", userId);
+                            dbRef = collection(db, `artifacts/${appId}/users/${userId}/scanned_items`);
+                            setupFirestoreListener();
+                            resolve();
+                        } catch (error) {
+                            console.error("An error occurred during anonymous sign-in:", error);
+                            showModal("Authentication Error", "Could not authenticate. Data will not be saved.");
+                            resolve();
+                        }
+                    }
+                });
+            });
+
+            // If a custom auth token is provided, sign in with it first
+            if (initialAuthToken) {
+                try {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } catch (error) {
+                    console.error("An error occurred during custom token sign-in:", error);
+                    showModal("Authentication Error", "Custom token sign-in failed. Please try again.");
+                }
+            }
+
+            // --- UI Element References ---
+            const videoElement = document.getElementById('video-feed');
+            const scanButton = document.getElementById('scan-button');
+            const scanMessage = document.getElementById('scan-message');
+            const loadingSpinner = document.getElementById('loading-spinner');
+            const scannedList = document.getElementById('scanned-list');
+            const exportButton = document.getElementById('export-button');
+            const modal = document.getElementById('message-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body');
+            const modalCloseButton = document.getElementById('modal-close-button');
+
+            // --- State Variables ---
+            let codeReader = null;
+            let videoStream = null;
+            let isScanning = false;
+            let scanMode = 'qr'; // 'qr' or 'code128'
+            let scannedQrData = null;
+            let scannedItems = [];
+
+            // --- Utility Functions ---
+            const showModal = (title, message) => {
+                modalTitle.textContent = title;
+                modalBody.textContent = message;
+                modal.classList.remove('hidden');
+            };
+
+            const hideModal = () => {
+                modal.classList.add('hidden');
+            };
+
+            const updateStatusMessage = (message, showSpinner = false) => {
+                scanMessage.textContent = message;
+                loadingSpinner.classList.toggle('hidden', !showSpinner);
+            };
+
+            const updateScannedList = () => {
+                scannedList.innerHTML = '';
+                if (scannedItems.length === 0) {
+                    scannedList.innerHTML = '<li class="text-gray-500 dark:text-gray-400">No items scanned yet.</li>';
+                    return;
+                }
+                scannedItems.forEach((item, index) => {
+                    const li = document.createElement('li');
+                    li.classList.add('p-4', 'bg-white', 'dark:bg-gray-800', 'rounded-lg', 'shadow-md', 'flex', 'flex-col', 'md:flex-row', 'md:items-center', 'justify-between', 'space-y-2', 'md:space-y-0');
+                    li.innerHTML = `
+                        <div class="flex-1 min-w-0">
+                            <span class="font-semibold text-blue-600 dark:text-blue-400">Item ${index + 1}:</span>
+                            <div class="flex flex-col md:flex-row md:space-x-4 text-sm mt-1">
+                                <span class="truncate">QR Code: <span class="font-medium text-gray-700 dark:text-gray-200">${item.qrCode}</span></span>
+                                <span class="truncate">Barcode: <span class="font-medium text-gray-700 dark:text-gray-200">${item.code128}</span></span>
+                            </div>
+                        </div>
+                        <button class="delete-btn px-3 py-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition duration-300 transform hover:scale-105" data-id="${item.id}">Delete</button>
+                    `;
+                    scannedList.appendChild(li);
+                });
+                // Add event listeners for delete buttons
+                document.querySelectorAll('.delete-btn').forEach(button => {
+                    button.addEventListener('click', async (event) => {
+                        const docId = event.target.dataset.id;
+                        if (docId && dbRef) {
+                            try {
+                                await deleteDoc(doc(dbRef, docId));
+                                console.log("Document successfully deleted!");
+                            } catch (e) {
+                                console.error("Error removing document: ", e);
+                            }
+                        }
+                    });
+                });
+            };
+
+            const saveScannedItem = async (qrData, code128Data) => {
+                if (!dbRef) {
+                    showModal("Save Error", "Firestore is not ready. Please try again.");
+                    return;
+                }
+                try {
+                    await addDoc(dbRef, {
+                        qrCode: qrData,
+                        code128: code128Data,
+                        timestamp: new Date().toISOString()
+                    });
+                    console.log("Item added to Firestore.");
+                } catch (e) {
+                    console.error("Error adding document: ", e);
+                    showModal("Save Error", "Could not save the item. Check the console for details.");
+                }
+            };
+
+            const setupFirestoreListener = () => {
+                if (!dbRef) return;
+                onSnapshot(dbRef, (snapshot) => {
+                    const items = [];
+                    snapshot.forEach((doc) => {
+                        items.push({ id: doc.id, ...doc.data() });
+                    });
+                    // Sort items by timestamp for a consistent order
+                    scannedItems = items.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                    updateScannedList();
+                }, (error) => {
+                    console.error("Error getting real-time updates:", error);
+                    showModal("Sync Error", "Could not sync with the database. Please reload the page.");
+                });
+            };
+
+            // --- Scanner Control Functions ---
+            const startScanning = async () => {
+                if (isScanning) return;
+                isScanning = true;
+                scanButton.textContent = 'Stop Scanning';
+                scanButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                scanButton.classList.add('bg-red-600', 'hover:bg-red-700');
+                updateStatusMessage("Scanning for QR code...", true);
+                scanMode = 'qr';
+                scannedQrData = null;
+
+                // Create a new code reader instance
+                codeReader = new window.ZXing.BrowserMultiFormatReader();
+
+                try {
+                    videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                    videoElement.srcObject = videoStream;
+                    videoElement.play();
+
+                    codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
+                        if (result) {
+                            handleScanResult(result.getText(), result.getBarcodeFormat().getName());
+                        }
+                    });
+                } catch (err) {
+                    console.error("Error accessing camera:", err);
+                    updateStatusMessage("Error: Camera access denied. Please enable camera permissions.");
+                    stopScanning();
+                    showModal("Camera Error", "Could not access the camera. Please check your browser permissions.");
+                }
+            };
+
+            const stopScanning = () => {
+                if (!isScanning) return;
+                isScanning = false;
+                scanButton.textContent = 'Start Scanning';
+                scanButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+                scanButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                updateStatusMessage("Scanner stopped.");
+                
+                if (codeReader) {
+                    codeReader.reset();
+                    codeReader = null;
+                }
+                
+                if (videoStream) {
+                    videoStream.getTracks().forEach(track => track.stop());
+                    videoStream = null;
+                    videoElement.srcObject = null;
+                }
+            };
+
+            const handleScanResult = (result, format) => {
+                console.log(`Scanned format: ${format}, result: ${result}`);
+
+                if (scanMode === 'qr' && format === 'QR_CODE') {
+                    scannedQrData = result;
+                    updateStatusMessage("QR code found! Now scan the Code 128 barcode.", false);
+                    scanMode = 'code128';
+                } else if (scanMode === 'code128' && format === 'CODE_128') {
+                    if (scannedQrData) {
+                        saveScannedItem(scannedQrData, result);
+                        updateStatusMessage("Item saved! Scan the next QR code.", false);
+                        scannedQrData = null;
+                        scanMode = 'qr';
+                    } else {
+                        // This case should ideally not happen if the flow is followed
+                        updateStatusMessage("QR code not scanned yet. Please scan the QR code first.", false);
+                    }
+                } else {
+                    // Ignore other formats or incorrect scan modes
+                    updateStatusMessage(`Scanning... Found a ${format} but waiting for a ${scanMode === 'qr' ? 'QR_CODE' : 'CODE_128'}.`, true);
+                }
+            };
+
+            // --- Export to Excel Functionality ---
+            const exportToExcel = () => {
+                if (scannedItems.length === 0) {
+                    showModal("Export Failed", "There is no data to export. Scan some items first.");
+                    return;
+                }
+
+                // Prepare data for export, mapping Firestore fields to column headers
+                const dataToExport = scannedItems.map(item => ({
+                    'QR Code Data': item.qrCode,
+                    'Code 128 Number': item.code128,
+                    'Timestamp': new Date(item.timestamp).toLocaleString()
+                }));
+
+                const ws = XLSX.utils.json_to_sheet(dataToExport);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Scanned Data");
+
+                // Generate and download the Excel file
+                XLSX.writeFile(wb, "scanned_data.xlsx");
+                showModal("Export Complete", "Your data has been successfully exported to 'scanned_data.xlsx'.");
+            };
+
+            // --- Event Listeners ---
+            scanButton.addEventListener('click', () => {
+                if (isScanning) {
+                    stopScanning();
+                } else {
+                    startScanning();
+                }
+            });
+
+            exportButton.addEventListener('click', exportToExcel);
+            modalCloseButton.addEventListener('click', hideModal);
+
+            // Initial setup
+            await authReadyPromise;
+            updateStatusMessage("Press 'Start Scanning' to begin.");
+        })();
+    </script>
+
+</body>
+</html>
