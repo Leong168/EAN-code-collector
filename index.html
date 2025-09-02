@@ -288,16 +288,23 @@
                     videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                     videoElement.srcObject = videoStream;
 
-                    // Promise that resolves when the video is ready to be played
-                    await new Promise((resolve, reject) => {
-                        videoElement.oncanplay = () => resolve();
-                        videoElement.onerror = () => reject('Video canplay failed.');
-                        // Add a timeout to avoid getting stuck
-                        setTimeout(() => reject('Video ready timeout.'), 5000);
+                    updateStatusMessage("Camera stream received...", true);
+
+                    // A more robust way to wait for the video to be ready
+                    await new Promise((resolve) => {
+                        const checkVideoState = () => {
+                            if (videoElement.readyState === 4) {
+                                resolve();
+                            } else {
+                                setTimeout(checkVideoState, 100);
+                            }
+                        };
+                        videoElement.oncanplay = () => resolve(); // Fallback for older browsers
+                        checkVideoState();
                     });
                     
                     videoElement.play();
-                    updateStatusMessage("Scanning for QR code...", true);
+                    updateStatusMessage("Starting scanner...", true);
 
                     // Start decoding from the video stream
                     codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
