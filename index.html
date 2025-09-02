@@ -282,7 +282,15 @@
                 try {
                     videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                     videoElement.srcObject = videoStream;
-                    videoElement.play();
+
+                    // New: Wait for the video metadata to load before playing and starting the scanner
+                    await new Promise((resolve, reject) => {
+                        videoElement.onloadedmetadata = () => {
+                            videoElement.play();
+                            resolve();
+                        };
+                        videoElement.onerror = () => reject('Video metadata load failed.');
+                    });
 
                     codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
                         if (result) {
