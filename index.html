@@ -285,25 +285,45 @@
                 codeReader = new window.ZXing.BrowserMultiFormatReader();
 
                 try {
+                    // Check for camera support
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        showModal("Camera Not Supported", "Your browser does not support camera access. Please use a different device or browser.");
+                        updateStatusMessage("Error: Camera not supported.");
+                        stopScanning();
+                        return;
+                    }
+
+                    // Get the video stream from the camera
                     videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                     videoElement.srcObject = videoStream;
 
                     updateStatusMessage("Camera stream received...", true);
+                    
+                    // Promise to wait for video to be ready and start playing
+                    const videoReadyPromise = new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => {
+                            reject('Video ready timeout.');
+                        }, 5000);
 
-                    // A more robust way to wait for the video to be ready
-                    await new Promise((resolve) => {
-                        const checkVideoState = () => {
-                            if (videoElement.readyState === 4) {
-                                resolve();
-                            } else {
-                                setTimeout(checkVideoState, 100);
-                            }
+                        const onVideoReady = () => {
+                            clearTimeout(timeout);
+                            resolve();
                         };
-                        videoElement.oncanplay = () => resolve(); // Fallback for older browsers
-                        checkVideoState();
+                        videoElement.addEventListener('canplay', onVideoReady, { once: true });
+                        videoElement.addEventListener('error', () => {
+                            clearTimeout(timeout);
+                            reject('Video playback error.');
+                        }, { once: true });
+                    });
+
+                    // Explicitly try to play the video to trigger permissions and stream
+                    await videoElement.play().catch(error => {
+                        console.error("Video play() failed:", error);
+                        throw new Error("Video autoplay failed. User interaction may be required.");
                     });
                     
-                    videoElement.play();
+                    await videoReadyPromise;
+                    
                     updateStatusMessage("Starting scanner...", true);
 
                     // Start decoding from the video stream
@@ -312,11 +332,12 @@
                             handleScanResult(result.getText(), result.getBarcodeFormat().getName());
                         }
                     });
+
                 } catch (err) {
                     console.error("Error accessing camera:", err);
-                    updateStatusMessage("Error: Camera access denied. Please enable camera permissions.");
+                    updateStatusMessage("Error: Camera access denied. Please enable camera permissions and try again.");
                     stopScanning();
-                    showModal("Camera Error", "Could not access the camera. Please check your browser permissions.");
+                    showModal("Camera Error", "Could not access the camera. Please check your browser permissions or try reloading the page.");
                 }
             };
 
