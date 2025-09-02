@@ -11,6 +11,31 @@
         body {
             font-family: 'Inter', sans-serif;
         }
+        .scanner-target {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            aspect-ratio: 16/9;
+            overflow: hidden;
+        }
+        .scanner-target::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 80%;
+            height: 80%;
+            transform: translate(-50%, -50%);
+            border: 4px solid #ef4444; /* red-500 */
+            border-radius: 12px;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+            animation: pulse-border 1.5s infinite;
+        }
+        @keyframes pulse-border {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            50% { transform: translate(-50%, -50%) scale(1.05); opacity: 0.8; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
     </style>
     <!-- ZXing Library for barcode scanning -->
     <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
@@ -29,10 +54,12 @@
         <!-- UI for Scanning -->
         <div class="w-full flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8">
             <div class="w-full md:w-1/2 flex flex-col items-center">
-                <video id="video-feed" class="w-full max-w-md h-auto rounded-xl shadow-lg border-2 border-gray-300 dark:border-gray-600 aspect-video"></video>
+                <div class="scanner-target">
+                    <video id="video-feed" class="w-full h-full object-cover rounded-xl shadow-lg"></video>
+                </div>
                 <div class="mt-4 w-full text-center">
                     <p id="scan-message" class="text-lg font-semibold text-gray-700 dark:text-gray-200">
-                        Initializing scanner...
+                        App ready. Press 'Start Scanning' to begin.
                     </p>
                     <div id="loading-spinner" class="mt-2 text-center text-blue-500 hidden">
                         <svg class="animate-spin h-8 w-8 text-blue-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -41,7 +68,7 @@
                         </svg>
                     </div>
                 </div>
-                <button id="scan-button" class="mt-4 px-6 py-3 bg-blue-600 text-white font-bold rounded-full shadow-lg hover:bg-blue-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50" disabled>
+                <button id="scan-button" class="mt-4 px-6 py-3 bg-blue-600 text-white font-bold rounded-full shadow-lg hover:bg-blue-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50">
                     Start Scanning
                 </button>
             </div>
@@ -178,18 +205,25 @@
                 codeReader = new window.ZXing.BrowserMultiFormatReader();
 
                 try {
-                    videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                    videoStream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: 'environment',
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        } 
+                    });
                     videoElement.srcObject = videoStream;
                     
-                    // Wait for the video to be ready before decoding
                     videoElement.addEventListener('loadedmetadata', () => {
-                        updateStatusMessage("Scanner is active. Ready to scan!", false);
+                        updateStatusMessage("Scanner is active. Aim the barcode inside the red box and press 'Scan'.", false);
+                        exportButton.disabled = false;
+                        exportButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                        scanButton.textContent = 'Scan';
+                        scanButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+                        scanButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
 
-                        codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
-                            if (result) {
-                                handleScanResult(result.getText(), result.getBarcodeFormat().getName());
-                            }
-                        });
+                        // Now the button is a single-shot trigger
+                        scanButton.addEventListener('click', singleShotScan, { once: true });
                     }, { once: true });
 
                     videoElement.play();
@@ -200,6 +234,23 @@
                     showModal("Camera Error", "Could not access the camera. Please check your browser permissions or try reloading the page.");
                     stopScanning();
                 }
+            };
+            
+            const singleShotScan = async () => {
+                updateStatusMessage("Scanning...", true);
+                try {
+                    const result = await codeReader.decodeFromVideoElement(videoElement, 'video-feed');
+                    if (result) {
+                        handleScanResult(result.getText(), result.getBarcodeFormat().getName());
+                    } else {
+                        updateStatusMessage("No code found. Try again or adjust your aim.", false);
+                    }
+                } catch (err) {
+                    console.error("Error decoding:", err);
+                    updateStatusMessage("Error during scan. Please try again.", false);
+                }
+                // Re-enable the button for the next scan
+                scanButton.addEventListener('click', singleShotScan, { once: true });
             };
 
             const stopScanning = () => {
@@ -243,10 +294,10 @@
 
             const setupEventListeners = () => {
                 scanButton.addEventListener('click', () => {
-                    if (isScanning) {
-                        stopScanning();
-                    } else {
+                    if (!isScanning) {
                         startScanning();
+                    } else {
+                        stopScanning();
                     }
                 });
 
@@ -266,11 +317,6 @@
 
             // Main initialization flow
             updateStatusMessage("App ready. Press 'Start Scanning' to begin.");
-            scanButton.disabled = false;
-            exportButton.disabled = false;
-            scanButton.classList.remove('opacity-50', 'cursor-not-allowed');
-            exportButton.classList.remove('opacity-50', 'cursor-not-allowed');
-            loadingSpinner.classList.add('hidden');
             setupEventListeners();
         });
     </script>
