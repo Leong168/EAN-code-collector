@@ -272,10 +272,15 @@
                 scanButton.textContent = 'Stop Scanning';
                 scanButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
                 scanButton.classList.add('bg-red-600', 'hover:bg-red-700');
-                updateStatusMessage("Scanning for QR code...", true);
+                updateStatusMessage("Requesting camera access...", true);
                 scanMode = 'qr';
                 scannedQrData = null;
-
+                
+                // Reset existing reader if it exists
+                if (codeReader) {
+                    codeReader.reset();
+                }
+                
                 // Create a new code reader instance
                 codeReader = new window.ZXing.BrowserMultiFormatReader();
 
@@ -283,15 +288,18 @@
                     videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                     videoElement.srcObject = videoStream;
 
-                    // New: Wait for the video metadata to load before playing and starting the scanner
+                    // Promise that resolves when the video is ready to be played
                     await new Promise((resolve, reject) => {
-                        videoElement.onloadedmetadata = () => {
-                            videoElement.play();
-                            resolve();
-                        };
-                        videoElement.onerror = () => reject('Video metadata load failed.');
+                        videoElement.oncanplay = () => resolve();
+                        videoElement.onerror = () => reject('Video canplay failed.');
+                        // Add a timeout to avoid getting stuck
+                        setTimeout(() => reject('Video ready timeout.'), 5000);
                     });
+                    
+                    videoElement.play();
+                    updateStatusMessage("Scanning for QR code...", true);
 
+                    // Start decoding from the video stream
                     codeReader.decodeFromStream(videoStream, videoElement, (result, err) => {
                         if (result) {
                             handleScanResult(result.getText(), result.getBarcodeFormat().getName());
