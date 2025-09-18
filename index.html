@@ -14,7 +14,7 @@
         }
         .container {
             width: 100%;
-            max-width: 600px;
+            max-width: 800px;
             margin: 0 auto;
             padding: 20px;
             background-color: #1e1e1e;
@@ -60,6 +60,11 @@
             top: -9999px;
             left: -9999px;
         }
+        .status-message {
+            font-weight: bold;
+            font-size: 1.2em;
+            margin-bottom: 20px;
+        }
         .instructions {
             margin-top: 20px;
             font-style: italic;
@@ -72,9 +77,10 @@
 
     <div class="container">
         <h1>PDA Barcode Scanner</h1>
-        <p class="instructions">Use the physical scan button on your PDA to scan a barcode. The results will appear below.</p>
+        <p class="instructions">Use the physical scan button on your PDA to scan a barcode. Follow the on-screen instructions.</p>
         
-        <!-- This is the hidden input field that the PDA scanner will "type" into -->
+        <p class="status-message" id="status-message">Please scan a QR code...</p>
+
         <input type="text" id="barcode-input" autofocus>
 
         <div id="result-container">
@@ -85,7 +91,8 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Value</th>
+                        <th>QR Code</th>
+                        <th>Code 128</th>
                         <th>Timestamp</th>
                     </tr>
                 </thead>
@@ -99,12 +106,16 @@
         const dataKey = 'scannedData';
         let scannedData = JSON.parse(localStorage.getItem(dataKey)) || [];
         const barcodeInput = document.getElementById('barcode-input');
+        const statusMessage = document.getElementById('status-message');
+        
+        // State variable: 'qr' or 'code128'
+        let waitingFor = 'qr';
 
         function renderTable() {
             const tableBody = document.getElementById('data-table-body');
             tableBody.innerHTML = '';
             scannedData.forEach(item => {
-                const row = `<tr><td>${item.value}</td><td>${item.timestamp}</td></tr>`;
+                const row = `<tr><td>${item.qrCode || ''}</td><td>${item.code128 || ''}</td><td>${item.timestamp}</td></tr>`;
                 tableBody.innerHTML += row;
             });
         }
@@ -114,40 +125,48 @@
         }
 
         function processBarcode(value) {
-            // Check if value is not empty
             if (value.trim() === '') {
                 return;
             }
 
             const timestamp = new Date().toLocaleString();
-            const newData = {
-                value: value.trim(),
-                timestamp: timestamp
-            };
+            const trimmedValue = value.trim();
 
-            // Check if data already exists to prevent duplicates
-            if (!scannedData.some(item => item.value === newData.value)) {
-                scannedData.push(newData);
-                autoSave();
-                renderTable();
+            if (waitingFor === 'qr') {
+                // Add a new row with the QR code value
+                scannedData.push({
+                    qrCode: trimmedValue,
+                    code128: null,
+                    timestamp: timestamp
+                });
+                waitingFor = 'code128';
+                statusMessage.textContent = "Please scan a Code 128 barcode...";
+            } else if (waitingFor === 'code128') {
+                // Check if there's a row to update
+                if (scannedData.length > 0) {
+                    const lastRow = scannedData[scannedData.length - 1];
+                    lastRow.code128 = trimmedValue;
+                    // Update timestamp to show when the pair was completed
+                    lastRow.timestamp = timestamp; 
+                } else {
+                    alert("Error: Scanned Code 128 without a preceding QR Code. Please restart the sequence.");
+                }
+                waitingFor = 'qr';
+                statusMessage.textContent = "Please scan a QR code...";
             }
 
-            // Clear the input for the next scan
+            autoSave();
+            renderTable();
             barcodeInput.value = '';
         }
 
-        // Listen for keyboard events on the entire document
         document.addEventListener('keydown', (event) => {
-            // The PDA scanner sends data as keypresses, usually ending with 'Enter'
-            // We check for the 'Enter' key to know when a full barcode has been scanned.
             if (event.key === 'Enter' || event.keyCode === 13) {
-                // Prevent the default action (e.g., form submission)
                 event.preventDefault();
                 processBarcode(barcodeInput.value);
             }
         });
 
-        // Ensure the hidden input always has focus
         document.addEventListener('click', () => {
             barcodeInput.focus();
         });
@@ -158,12 +177,13 @@
             barcodeInput.focus();
         });
 
-        // Function to clear all local data
         function clearData() {
             if (confirm("Are you sure you want to clear all scanned data? This action cannot be undone.")) {
                 localStorage.removeItem(dataKey);
                 scannedData = [];
                 renderTable();
+                waitingFor = 'qr';
+                statusMessage.textContent = "Please scan a QR code...";
             }
         }
 
