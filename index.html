@@ -102,17 +102,23 @@
             document.getElementById('start-barcode-btn').style.display = 'none';
             document.getElementById('stop-btn').style.display = 'inline';
 
-            const config = {
+            let config = {
                 fps: 10,
                 formatsToSupport: [format]
             };
-
+            
+            // Set the viewfinder size based on the format
             if (format === Html5QrcodeSupportedFormats.QR_CODE) {
                 config.qrbox = function(viewfinderWidth, viewfinderHeight) {
                     const minEdgePercentage = 0.7;
                     const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
                     const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
                     return { width: qrboxSize, height: qrboxSize };
+                };
+            } else if (format === Html5QrcodeSupportedFormats.CODE_128) {
+                // Barcode 128 requires a horizontal scanning area
+                config.qrbox = function(viewfinderWidth, viewfinderHeight) {
+                    return { width: viewfinderWidth * 0.9, height: 100 };
                 };
             }
 
@@ -123,7 +129,7 @@
             } catch (err) {
                 console.error("Failed to start scanning: ", err);
                 alert("Failed to start camera. Please ensure permissions are granted and the connection is secure (HTTPS).");
-                stopScanning(); // Call stop to reset the UI
+                stopScanning();
             }
         }
 
@@ -136,14 +142,13 @@
                 });
             }
             document.getElementById('start-qr-btn').style.display = 'inline';
-            document.getElementById('start-barcode-btn').style.display = 'none'; // Ensure both are initially off
+            document.getElementById('start-barcode-btn').style.display = 'none';
             document.getElementById('stop-btn').style.display = 'none';
         }
 
         async function onScanSuccess(decodedText, decodedResult) {
             console.log(`Scan successful: ${decodedText}`);
 
-            // Stop the scanner immediately to prevent re-scanning
             if (html5QrCode && html5QrCode.isScanning) {
                 await html5QrCode.stop().then(() => {
                     console.log("Scanner stopped.");
@@ -159,14 +164,12 @@
                 timestamp: timestamp
             };
             
-            // Prevent adding duplicate entries
             if (!scannedData.some(item => item.value === newData.value)) {
                 scannedData.push(newData);
                 autoSave();
                 renderTable();
             }
 
-            // After a successful QR scan, show the button for Code 128
             if (decodedResult.result.format.formatName === "QR_CODE") {
                  document.getElementById('start-barcode-btn').style.display = 'inline';
                  document.getElementById('start-qr-btn').style.display = 'none';
@@ -179,7 +182,7 @@
         }
 
         function onScanError(errorMessage) {
-            // console.error(errorMessage); // Uncomment to see scanning errors in detail
+            // console.error(errorMessage);
         }
 
         document.getElementById('start-qr-btn').addEventListener('click', () => {
