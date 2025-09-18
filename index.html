@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR & Barcode Scanner</title>
+    <title>QR & Code 128 Test Codes</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -12,201 +12,85 @@
             background-color: #121212;
             color: #e0e0e0;
         }
-        #reader {
-            width: 100%;
-            max-width: 500px;
-            margin: 20px auto;
+        .code-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
         }
-        #result-container {
-            margin-top: 20px;
-            text-align: left;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-        th, td {
+        .code {
+            margin: 0 10px;
+            padding: 10px;
             border: 1px solid #444;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
             background-color: #333;
-            color: #fff;
-        }
-        button {
-            padding: 10px 20px;
-            margin: 5px;
-            background-color: #007bff;
-            color: white;
-            border: none;
             border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
         }
-        button:hover {
-            background-color: #0056b3;
+        h1, h2 {
+            color: #e0e0e0;
         }
     </style>
-    <script src="https://unpkg.com/html5-qrcode"></script>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/qrious"></script>
+    <script src="https://cdn.jsdelivr.net/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
 </head>
 <body>
-    <h1>Mobile Scanner App</h1>
 
-    <button id="start-qr-btn">Scan QR Code</button>
-    <button id="start-barcode-btn" style="display:none;">Scan Barcode 128</button>
-    <button id="stop-btn" style="display:none;">Stop Scanning</button>
-    <br><br>
+    <h1>Test Codes for Scanning</h1>
+    <p>Use your scanner to test the sequence: QR Code, then Code 128.</p>
 
-    <div id="reader"></div>
-
-    <div id="result-container">
-        <h2>Scanned Data</h2>
-        <p>Your data is auto-saved locally.</p>
-        <button id="export-btn">Export to Excel</button>
-        <table>
-            <thead>
-                <tr>
-                    <th>Type</th>
-                    <th>Value</th>
-                    <th>Timestamp</th>
-                </tr>
-            </thead>
-            <tbody id="data-table-body">
-            </tbody>
-        </table>
-    </div>
+    <div id="codes-container"></div>
 
     <script>
-        let html5QrCode;
-        const dataKey = 'scannedData';
-        let scannedData = JSON.parse(localStorage.getItem(dataKey)) || [];
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const container = document.getElementById('codes-container');
+            const numberOfPairs = 5; // You can change this number
 
-        function renderTable() {
-            const tableBody = document.getElementById('data-table-body');
-            tableBody.innerHTML = '';
-            scannedData.forEach(item => {
-                const row = `<tr><td>${item.type}</td><td>${item.value}</td><td>${item.timestamp}</td></tr>`;
-                tableBody.innerHTML += row;
+            for (let i = 1; i <= numberOfPairs; i++) {
+                const codeValue = `QR-128-TEST-${i}`;
+                generateCodePair(container, codeValue, i);
+            }
+        });
+
+        function generateCodePair(parent, value, index) {
+            // Create a container for the pair
+            const pairContainer = document.createElement('div');
+            pairContainer.className = 'code-container';
+
+            // Create a container for the QR Code
+            const qrCodeContainer = document.createElement('div');
+            qrCodeContainer.className = 'code';
+            const qrCanvas = document.createElement('canvas');
+            qrCanvas.id = `qr-code-${index}`;
+            qrCodeContainer.appendChild(qrCanvas);
+
+            // Create a container for the Code 128
+            const barcodeContainer = document.createElement('div');
+            barcodeContainer.className = 'code';
+            const barcodeSvg = document.createElement('svg');
+            barcodeSvg.id = `barcode-${index}`;
+            barcodeContainer.appendChild(barcodeSvg);
+            
+            // Add both to the pair container
+            pairContainer.appendChild(qrCodeContainer);
+            pairContainer.appendChild(barcodeContainer);
+
+            // Add the pair to the main container
+            parent.appendChild(pairContainer);
+
+            // Generate the QR Code
+            const qr = new QRious({
+                element: document.getElementById(`qr-code-${index}`),
+                value: value,
+                size: 200
+            });
+
+            // Generate the Code 128
+            JsBarcode(`#barcode-${index}`, value, {
+                format: "CODE128",
+                height: 100,
+                displayValue: false
             });
         }
-
-        function autoSave() {
-            localStorage.setItem(dataKey, JSON.stringify(scannedData));
-        }
-
-        async function startScanning(format) {
-            document.getElementById('start-qr-btn').style.display = 'none';
-            document.getElementById('start-barcode-btn').style.display = 'none';
-            document.getElementById('stop-btn').style.display = 'inline';
-
-            let config = {
-                fps: 10,
-                formatsToSupport: [format]
-            };
-            
-            // Set the viewfinder size based on the format
-            if (format === Html5QrcodeSupportedFormats.QR_CODE) {
-                config.qrbox = function(viewfinderWidth, viewfinderHeight) {
-                    const minEdgePercentage = 0.7;
-                    const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-                    const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
-                    return { width: qrboxSize, height: qrboxSize };
-                };
-            } else if (format === Html5QrcodeSupportedFormats.CODE_128) {
-                // Barcode 128 requires a horizontal scanning area
-                config.qrbox = function(viewfinderWidth, viewfinderHeight) {
-                    return { width: viewfinderWidth * 0.9, height: 100 };
-                };
-            }
-
-            try {
-                html5QrCode = new Html5Qrcode("reader");
-                await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanError);
-                console.log("Scanning started.");
-            } catch (err) {
-                console.error("Failed to start scanning: ", err);
-                alert("Failed to start camera. Please ensure permissions are granted and the connection is secure (HTTPS).");
-                stopScanning();
-            }
-        }
-
-        async function stopScanning() {
-            if (html5QrCode && html5QrCode.isScanning) {
-                await html5QrCode.stop().then(() => {
-                    console.log("Scanning stopped successfully.");
-                }).catch(err => {
-                    console.error("Failed to stop scanning.", err);
-                });
-            }
-            document.getElementById('start-qr-btn').style.display = 'inline';
-            document.getElementById('start-barcode-btn').style.display = 'none';
-            document.getElementById('stop-btn').style.display = 'none';
-        }
-
-        async function onScanSuccess(decodedText, decodedResult) {
-            console.log(`Scan successful: ${decodedText}`);
-
-            if (html5QrCode && html5QrCode.isScanning) {
-                await html5QrCode.stop().then(() => {
-                    console.log("Scanner stopped.");
-                }).catch(err => {
-                    console.error("Failed to stop scanner after scan:", err);
-                });
-            }
-            
-            const timestamp = new Date().toLocaleString();
-            const newData = {
-                type: decodedResult.result.format.formatName,
-                value: decodedText,
-                timestamp: timestamp
-            };
-            
-            if (!scannedData.some(item => item.value === newData.value)) {
-                scannedData.push(newData);
-                autoSave();
-                renderTable();
-            }
-
-            if (decodedResult.result.format.formatName === "QR_CODE") {
-                 document.getElementById('start-barcode-btn').style.display = 'inline';
-                 document.getElementById('start-qr-btn').style.display = 'none';
-                 document.getElementById('stop-btn').style.display = 'none';
-            } else {
-                 document.getElementById('start-barcode-btn').style.display = 'none';
-                 document.getElementById('start-qr-btn').style.display = 'inline';
-                 document.getElementById('stop-btn').style.display = 'none';
-            }
-        }
-
-        function onScanError(errorMessage) {
-            // console.error(errorMessage);
-        }
-
-        document.getElementById('start-qr-btn').addEventListener('click', () => {
-            startScanning(Html5QrcodeSupportedFormats.QR_CODE);
-        });
-
-        document.getElementById('start-barcode-btn').addEventListener('click', () => {
-            startScanning(Html5QrcodeSupportedFormats.CODE_128);
-        });
-
-        document.getElementById('stop-btn').addEventListener('click', stopScanning);
-
-        document.getElementById('export-btn').addEventListener('click', () => {
-            if (scannedData.length === 0) {
-                alert("No data to export!");
-                return;
-            }
-            const worksheet = XLSX.utils.json_to_sheet(scannedData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "ScannedData");
-            XLSX.writeFile(workbook, "scanned_data.xlsx");
-        });
-        
-        renderTable();
     </script>
+
 </body>
 </html>
