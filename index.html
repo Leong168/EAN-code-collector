@@ -9,6 +9,8 @@
             font-family: Arial, sans-serif;
             margin: 20px;
             text-align: center;
+            background-color: #121212;
+            color: #e0e0e0;
         }
         #reader {
             width: 100%;
@@ -25,11 +27,26 @@
             margin-top: 10px;
         }
         th, td {
-            border: 1px solid #ddd;
+            border: 1px solid #444;
             padding: 8px;
+            text-align: left;
         }
         th {
-            background-color: #f2f2f2;
+            background-color: #333;
+            color: #fff;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
         }
     </style>
     <script src="https://unpkg.com/html5-qrcode"></script>
@@ -67,7 +84,6 @@
         const dataKey = 'scannedData';
         let scannedData = JSON.parse(localStorage.getItem(dataKey)) || [];
 
-        // Function to render the data table from the local storage
         function renderTable() {
             const tableBody = document.getElementById('data-table-body');
             tableBody.innerHTML = '';
@@ -77,49 +93,117 @@
             });
         }
 
-        // Auto-save function
         function autoSave() {
             localStorage.setItem(dataKey, JSON.stringify(scannedData));
         }
 
-        // Start QR Code scanning
+        async function startScanning(format) {
+            document.getElementById('start-qr-btn').style.display = 'none';
+            document.getElementById('start-barcode-btn').style.display = 'none';
+            document.getElementById('stop-btn').style.display = 'inline';
+
+            const config = {
+                fps: 10,
+                formatsToSupport: [format]
+            };
+
+            if (format === Html5QrcodeSupportedFormats.QR_CODE) {
+                config.qrbox = function(viewfinderWidth, viewfinderHeight) {
+                    const minEdgePercentage = 0.7;
+                    const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+                    const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
+                    return { width: qrboxSize, height: qrboxSize };
+                };
+            }
+
+            try {
+                html5QrCode = new Html5Qrcode("reader");
+                await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanError);
+                console.log("Scanning started.");
+            } catch (err) {
+                console.error("Failed to start scanning: ", err);
+                alert("Failed to start camera. Please ensure permissions are granted and the connection is secure (HTTPS).");
+                stopScanning(); // Call stop to reset the UI
+            }
+        }
+
+        async function stopScanning() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                await html5QrCode.stop().then(() => {
+                    console.log("Scanning stopped successfully.");
+                }).catch(err => {
+                    console.error("Failed to stop scanning.", err);
+                });
+            }
+            document.getElementById('start-qr-btn').style.display = 'inline';
+            document.getElementById('start-barcode-btn').style.display = 'none'; // Ensure both are initially off
+            document.getElementById('stop-btn').style.display = 'none';
+        }
+
+        async function onScanSuccess(decodedText, decodedResult) {
+            console.log(`Scan successful: ${decodedText}`);
+
+            // Stop the scanner immediately to prevent re-scanning
+            if (html5QrCode && html5QrCode.isScanning) {
+                await html5QrCode.stop().then(() => {
+                    console.log("Scanner stopped.");
+                }).catch(err => {
+                    console.error("Failed to stop scanner after scan:", err);
+                });
+            }
+            
+            const timestamp = new Date().toLocaleString();
+            const newData = {
+                type: decodedResult.result.format.formatName,
+                value: decodedText,
+                timestamp: timestamp
+            };
+            
+            // Prevent adding duplicate entries
+            if (!scannedData.some(item => item.value === newData.value)) {
+                scannedData.push(newData);
+                autoSave();
+                renderTable();
+            }
+
+            // After a successful QR scan, show the button for Code 128
+            if (decodedResult.result.format.formatName === "QR_CODE") {
+                 document.getElementById('start-barcode-btn').style.display = 'inline';
+                 document.getElementById('start-qr-btn').style.display = 'none';
+                 document.getElementById('stop-btn').style.display = 'none';
+            } else {
+                 document.getElementById('start-barcode-btn').style.display = 'none';
+                 document.getElementById('start-qr-btn').style.display = 'inline';
+                 document.getElementById('stop-btn').style.display = 'none';
+            }
+        }
+
+        function onScanError(errorMessage) {
+            // console.error(errorMessage); // Uncomment to see scanning errors in detail
+        }
+
         document.getElementById('start-qr-btn').addEventListener('click', () => {
-            const qrboxFunction = function(viewfinderWidth, viewfinderHeight) {
-                const minEdgePercentage = 0.7; // 70%
-                const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-                const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
-                return { width: qrboxSize, height: qrboxSize };
-            };
-            const config = {
-                fps: 10,
-                qrbox: qrboxFunction,
-                formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
-            };
-            html5QrCode = new Html5Qrcode("reader");
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanError);
-            document.getElementById('start-qr-btn').style.display = 'none';
-            document.getElementById('start-barcode-btn').style.display = 'none';
-            document.getElementById('stop-btn').style.display = 'inline';
+            startScanning(Html5QrcodeSupportedFormats.QR_CODE);
         });
 
-        // Start Barcode 128 scanning
         document.getElementById('start-barcode-btn').addEventListener('click', () => {
-            const config = {
-                fps: 10,
-                formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128]
-            };
-            html5QrCode = new Html5Qrcode("reader");
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanError);
-            document.getElementById('start-qr-btn').style.display = 'none';
-            document.getElementById('start-barcode-btn').style.display = 'none';
-            document.getElementById('stop-btn').style.display = 'inline';
+            startScanning(Html5QrcodeSupportedFormats.CODE_128);
         });
 
-        // Stop scanning
-        document.getElementById('stop-btn').addEventListener('click', () => {
-            if (html5QrCode) {
-                html5QrCode.stop().then(() => {
-                    console.log("Scanning stopped.");
-                    document.getElementById('start-qr-btn').style.display = 'inline';
-                    document.getElementById('start-barcode-btn').style.display = 'inline';
-                    document.getElementById('stop-btn
+        document.getElementById('stop-btn').addEventListener('click', stopScanning);
+
+        document.getElementById('export-btn').addEventListener('click', () => {
+            if (scannedData.length === 0) {
+                alert("No data to export!");
+                return;
+            }
+            const worksheet = XLSX.utils.json_to_sheet(scannedData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "ScannedData");
+            XLSX.writeFile(workbook, "scanned_data.xlsx");
+        });
+        
+        renderTable();
+    </script>
+</body>
+</html>
