@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR & Barcode Scanner</title>
+    <title>PDA Barcode Scanner</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -12,10 +12,13 @@
             background-color: #121212;
             color: #e0e0e0;
         }
-        #reader {
+        .container {
             width: 100%;
-            max-width: 500px;
-            margin: 20px auto;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1e1e1e;
+            border-radius: 8px;
         }
         #result-container {
             margin-top: 20px;
@@ -48,49 +51,60 @@
         button:hover {
             background-color: #0056b3;
         }
+        #clear-btn {
+            background-color: #dc3545;
+        }
+        #barcode-input {
+            opacity: 0;
+            position: absolute;
+            top: -9999px;
+            left: -9999px;
+        }
+        .instructions {
+            margin-top: 20px;
+            font-style: italic;
+            color: #ccc;
+        }
     </style>
-    <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
-    <h1>Mobile Scanner App</h1>
+    <div class="container">
+        <h1>PDA Barcode Scanner</h1>
+        <p class="instructions">Use the physical scan button on your PDA to scan a barcode. The results will appear below.</p>
+        
+        <!-- This is the hidden input field that the PDA scanner will "type" into -->
+        <input type="text" id="barcode-input" autofocus>
 
-    <button id="start-qr-btn">Scan QR Code</button>
-    <button id="start-barcode-btn" style="display:none;">Scan Barcode 128</button>
-    <button id="stop-btn" style="display:none;">Stop Scanning</button>
-    <br><br>
-
-    <div id="reader"></div>
-
-    <div id="result-container">
-        <h2>Scanned Data</h2>
-        <p>Your data is auto-saved locally.</p>
-        <button id="export-btn">Export to Excel</button>
-        <button id="clear-btn" style="background-color: #dc3545;">Clear Data</button>
-        <table>
-            <thead>
-                <tr>
-                    <th>Type</th>
-                    <th>Value</th>
-                    <th>Timestamp</th>
-                </tr>
-            </thead>
-            <tbody id="data-table-body">
-            </tbody>
-        </table>
+        <div id="result-container">
+            <h2>Scanned Data</h2>
+            <p>Your data is auto-saved locally.</p>
+            <button id="export-btn">Export to Excel</button>
+            <button id="clear-btn">Clear Data</button>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Value</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody id="data-table-body">
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <script>
-        let html5QrCode;
         const dataKey = 'scannedData';
         let scannedData = JSON.parse(localStorage.getItem(dataKey)) || [];
+        const barcodeInput = document.getElementById('barcode-input');
 
         function renderTable() {
             const tableBody = document.getElementById('data-table-body');
             tableBody.innerHTML = '';
             scannedData.forEach(item => {
-                const row = `<tr><td>${item.type}</td><td>${item.value}</td><td>${item.timestamp}</td></tr>`;
+                const row = `<tr><td>${item.value}</td><td>${item.timestamp}</td></tr>`;
                 tableBody.innerHTML += row;
             });
         }
@@ -99,93 +113,50 @@
             localStorage.setItem(dataKey, JSON.stringify(scannedData));
         }
 
-        async function startScanning(format) {
-            document.getElementById('start-qr-btn').style.display = 'none';
-            document.getElementById('start-barcode-btn').style.display = 'none';
-            document.getElementById('stop-btn').style.display = 'inline';
-
-            let config = {
-                fps: 10,
-                formatsToSupport: [format]
-            };
-            
-            // Set the viewfinder size based on the format
-            if (format === Html5QrcodeSupportedFormats.QR_CODE) {
-                config.qrbox = function(viewfinderWidth, viewfinderHeight) {
-                    const minEdgePercentage = 0.7;
-                    const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-                    const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
-                    return { width: qrboxSize, height: qrboxSize };
-                };
-            } else if (format === Html5QrcodeSupportedFormats.CODE_128) {
-                // Barcode 128 requires a horizontal scanning area
-                config.qrbox = function(viewfinderWidth, viewfinderHeight) {
-                    return { width: viewfinderWidth * 0.9, height: 100 };
-                };
+        function processBarcode(value) {
+            // Check if value is not empty
+            if (value.trim() === '') {
+                return;
             }
 
-            try {
-                html5QrCode = new Html5Qrcode("reader");
-                await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanError);
-                console.log("Scanning started.");
-            } catch (err) {
-                console.error("Failed to start scanning: ", err);
-                alert("Failed to start camera. Please ensure permissions are granted and the connection is secure (HTTPS).");
-                stopScanning();
-            }
-        }
-
-        async function stopScanning() {
-            if (html5QrCode && html5QrCode.isScanning) {
-                await html5QrCode.stop().then(() => {
-                    console.log("Scanning stopped successfully.");
-                }).catch(err => {
-                    console.error("Failed to stop scanning.", err);
-                });
-            }
-            document.getElementById('start-qr-btn').style.display = 'inline';
-            document.getElementById('start-barcode-btn').style.display = 'none';
-            document.getElementById('stop-btn').style.display = 'none';
-        }
-
-        async function onScanSuccess(decodedText, decodedResult) {
-            console.log(`Scan successful: ${decodedText}`);
-
-            if (html5QrCode && html5QrCode.isScanning) {
-                await html5QrCode.stop().then(() => {
-                    console.log("Scanner stopped.");
-                }).catch(err => {
-                    console.error("Failed to stop scanner after scan:", err);
-                });
-            }
-            
             const timestamp = new Date().toLocaleString();
             const newData = {
-                type: decodedResult.result.format.formatName,
-                value: decodedText,
+                value: value.trim(),
                 timestamp: timestamp
             };
-            
+
+            // Check if data already exists to prevent duplicates
             if (!scannedData.some(item => item.value === newData.value)) {
                 scannedData.push(newData);
                 autoSave();
                 renderTable();
             }
 
-            if (decodedResult.result.format.formatName === "QR_CODE") {
-                 document.getElementById('start-barcode-btn').style.display = 'inline';
-                 document.getElementById('start-qr-btn').style.display = 'none';
-                 document.getElementById('stop-btn').style.display = 'none';
-            } else {
-                 document.getElementById('start-barcode-btn').style.display = 'none';
-                 document.getElementById('start-qr-btn').style.display = 'inline';
-                 document.getElementById('stop-btn').style.display = 'none';
-            }
+            // Clear the input for the next scan
+            barcodeInput.value = '';
         }
 
-        function onScanError(errorMessage) {
-            // console.error(errorMessage);
-        }
+        // Listen for keyboard events on the entire document
+        document.addEventListener('keydown', (event) => {
+            // The PDA scanner sends data as keypresses, usually ending with 'Enter'
+            // We check for the 'Enter' key to know when a full barcode has been scanned.
+            if (event.key === 'Enter' || event.keyCode === 13) {
+                // Prevent the default action (e.g., form submission)
+                event.preventDefault();
+                processBarcode(barcodeInput.value);
+            }
+        });
+
+        // Ensure the hidden input always has focus
+        document.addEventListener('click', () => {
+            barcodeInput.focus();
+        });
+        document.addEventListener('touch', () => {
+            barcodeInput.focus();
+        });
+        document.addEventListener('load', () => {
+            barcodeInput.focus();
+        });
 
         // Function to clear all local data
         function clearData() {
@@ -193,19 +164,8 @@
                 localStorage.removeItem(dataKey);
                 scannedData = [];
                 renderTable();
-                alert("All data has been cleared.");
             }
         }
-
-        document.getElementById('start-qr-btn').addEventListener('click', () => {
-            startScanning(Html5QrcodeSupportedFormats.QR_CODE);
-        });
-
-        document.getElementById('start-barcode-btn').addEventListener('click', () => {
-            startScanning(Html5QrcodeSupportedFormats.CODE_128);
-        });
-
-        document.getElementById('stop-btn').addEventListener('click', stopScanning);
 
         document.getElementById('export-btn').addEventListener('click', () => {
             if (scannedData.length === 0) {
